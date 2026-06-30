@@ -1,0 +1,9 @@
+# 독립 git 레포 (각자 별도로 배포됨 — 오케스트레이터는 추적하지 않음)
+bumang-blog-front/
+bumang-blog-backend/
+
+# CPF 플러그인 세션 아티팩트
+.cpf/
+
+# OS
+.DS_Store
