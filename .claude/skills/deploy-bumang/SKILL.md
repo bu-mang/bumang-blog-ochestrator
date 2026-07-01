@@ -1,6 +1,6 @@
 ---
 name: deploy-bumang
-description: bumang-blog 3개 레포(front·backend·orchestrator)를 bu-mang 계정으로 push해서 배포한다. 멀티계정 인증(회사 bhjeong-camfit ↔ 개인 bu-mang) 전환을 자동으로 처리한다. 사용자가 "배포해줘", "deploy", "push해줘", "/deploy-bumang", "변경사항 올려줘", "프론트/백엔드 배포"라고 하면 이 스킬을 사용한다. 코드 변경을 커밋·push하고 GitHub Actions 배포를 트리거하는 작업이다.
+description: bumang-blog 3개 레포(front·backend·orchestrator)를 bu-mang 계정으로 push해서 배포한다. 멀티계정 인증(회사 bhjeong-camfit ↔ 개인 bu-mang) 전환을 자동으로 처리한다. 사용자가 "배포해줘", "푸시해줘", "커밋푸시해줘", "deploy", "push해줘", "/deploy-bumang", "변경사항 올려줘", "프론트/백엔드 배포"라고 하면 이 스킬을 사용한다. 코드 변경을 커밋·push하고 GitHub Actions 배포를 트리거하는 작업이다.
 ---
 
 # bumang-blog 멀티계정 배포
@@ -53,6 +53,8 @@ gh auth status 2>&1 | grep -E "account|Active"
 
 ### 3. 활성 계정을 bu-mang으로 전환 + 검증
 
+> ⚠️ **switch와 push는 반드시 별도의 Bash 호출로 분리**한다. `guard-bumang-push.js`(PreToolUse hook)는 Bash 명령 **실행 전**에 계정을 확인하므로, `gh auth switch ... && git push`를 한 호출로 묶으면 switch 실행 전(=회사 계정) 상태로 판정돼 push가 **차단**된다. 먼저 switch만 실행하고, 그 다음 별도 호출로 push한다.
+
 ```bash
 gh auth switch --user bu-mang
 [ -z "$GITHUB_TOKEN" ] && echo "env 토큰 없음 ✅" || echo "⚠️ GITHUB_TOKEN 있음 — 중단"
@@ -60,11 +62,11 @@ gh auth status 2>&1 | grep -A1 "bu-mang"
 ```
 
 - **Claude 도구 셸에 `GITHUB_TOKEN`이 있으면 절대 진행하지 말 것** — 그러면 회사 토큰으로 push된다. (정상이면 없다.)
-- 활성 계정이 `bu-mang`인지 확인되면 push.
+- 활성 계정이 `bu-mang`인지 확인되면 **다음 호출에서** push.
 
-### 4. push
+### 4. push (switch와 다른 Bash 호출로)
 
-origin보다 앞선 커밋이 있는 레포만 push한다.
+origin보다 앞선 커밋이 있는 레포만 push한다. 이 시점엔 활성 계정이 bu-mang이라 push 가드 hook을 통과한다.
 
 ```bash
 git -C /Users/beomhwan/Work/bumang-blog/bumang-blog-front   push origin main
