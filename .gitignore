@@ -5,5 +5,9 @@ bumang-blog-backend/
 # CPF 플러그인 세션 아티팩트
 .cpf/
 
+# SSH PEM KEY (AWS EC2 — 루트에 배치, 절대 커밋 금지)
+key-of-bumang-blog.pem
+*.pem
+
 # OS
 .DS_Store
