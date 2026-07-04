@@ -1,4 +1,8 @@
 {
+  "enabledPlugins": {
+    "cpf@camfit-plugins": false,
+    "camfit-admin-plugin@camfit-plugins": false
+  },
   "hooks": {
     "PreToolUse": [
       {
