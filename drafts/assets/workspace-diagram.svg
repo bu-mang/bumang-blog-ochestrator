@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" font-family="-apple-system, 'Apple SD Gothic Neo', 'Helvetica Neue', Arial, sans-serif">
+  <!-- panel -->
+  <rect x="16" y="16" width="928" height="528" rx="18" fill="#fbfaf8" stroke="#e7e2d9" stroke-width="1.5"/>
+
+  <!-- title -->
+  <text x="44" y="52" font-size="15" font-weight="700" fill="#8a8175" letter-spacing="0.5">AI-WORKSPACE 구조</text>
+
+  <!-- manager node -->
+  <rect x="330" y="72" width="300" height="72" rx="14" fill="#2f2a26"/>
+  <text x="480" y="104" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">AI-Workspace</text>
+  <text x="480" y="126" text-anchor="middle" font-size="12.5" fill="#c9c2b6">Manager · 오케스트레이터 (private/)</text>
+
+  <!-- connector: manager down to bus -->
+  <line x1="480" y1="144" x2="480" y2="176" stroke="#c3bcb0" stroke-width="1.6"/>
+  <text x="480" y="170" text-anchor="middle" font-size="11.5" fill="#a49b8c">컨텍스트 · 오케스트레이션 (코드는 각 repo에서)</text>
+  <!-- horizontal bus -->
+  <line x1="200" y1="188" x2="760" y2="188" stroke="#c3bcb0" stroke-width="1.6"/>
+  <!-- drops to each project -->
+  <line x1="200" y1="188" x2="200" y2="212" stroke="#c3bcb0" stroke-width="1.6"/>
+  <line x1="480" y1="188" x2="480" y2="212" stroke="#c3bcb0" stroke-width="1.6"/>
+  <line x1="760" y1="188" x2="760" y2="212" stroke="#c3bcb0" stroke-width="1.6"/>
+
+  <!-- ===== bumang-blog (blue) ===== -->
+  <rect x="90" y="212" width="220" height="60" rx="12" fill="#eaf1fb" stroke="#bcd2f1" stroke-width="1.5"/>
+  <text x="200" y="238" text-anchor="middle" font-size="16" font-weight="700" fill="#1f4e8c">bumang-blog</text>
+  <text x="200" y="257" text-anchor="middle" font-size="11.5" fill="#5b7bab">블로그 + 포트폴리오</text>
+  <rect x="90" y="288" width="220" height="156" rx="12" fill="#ffffff" stroke="#ece7dd" stroke-width="1.3"/>
+  <text x="108" y="316" font-size="13" fill="#4a443c">└ front — Next.js 14</text>
+  <text x="108" y="342" font-size="13" fill="#4a443c">└ backend — NestJS · TypeORM</text>
+  <line x1="108" y1="360" x2="292" y2="360" stroke="#efeae1" stroke-width="1"/>
+  <text x="108" y="382" font-size="11.5" font-style="italic" fill="#9a9184">독립 git repo ×2</text>
+  <text x="108" y="404" font-size="11.5" font-style="italic" fill="#9a9184">포트 4000 / 4001</text>
+
+  <!-- ===== zentarot (purple) ===== -->
+  <rect x="370" y="212" width="220" height="60" rx="12" fill="#f1ecfb" stroke="#cfc0f0" stroke-width="1.5"/>
+  <text x="480" y="238" text-anchor="middle" font-size="16" font-weight="700" fill="#5a3aa0">zentarot</text>
+  <text x="480" y="257" text-anchor="middle" font-size="11.5" fill="#8a6fc0">타로 앱 · 모노레포</text>
+  <rect x="370" y="288" width="220" height="156" rx="12" fill="#ffffff" stroke="#ece7dd" stroke-width="1.3"/>
+  <text x="388" y="316" font-size="13" fill="#4a443c">└ apps/mobile — Expo RN</text>
+  <text x="388" y="342" font-size="13" fill="#4a443c">└ apps/api — NestJS</text>
+  <text x="388" y="368" font-size="13" fill="#4a443c">└ packages/shared — zod</text>
+  <line x1="388" y1="386" x2="572" y2="386" stroke="#efeae1" stroke-width="1"/>
+  <text x="388" y="408" font-size="11.5" font-style="italic" fill="#9a9184">pnpm + turbo 모노레포</text>
+
+  <!-- ===== ant-index (teal) ===== -->
+  <rect x="650" y="212" width="220" height="60" rx="12" fill="#e8f5f0" stroke="#aaddca" stroke-width="1.5"/>
+  <text x="760" y="238" text-anchor="middle" font-size="16" font-weight="700" fill="#1f6f52">ant-index</text>
+  <text x="760" y="257" text-anchor="middle" font-size="11.5" fill="#4f9a7e">심리 지표 · LLM 내장</text>
+  <rect x="650" y="288" width="220" height="156" rx="12" fill="#ffffff" stroke="#ece7dd" stroke-width="1.3"/>
+  <text x="668" y="316" font-size="13" fill="#4a443c">└ crawler — Python</text>
+  <text x="668" y="342" font-size="13" fill="#4a443c">└ server — NestJS · Drizzle</text>
+  <text x="668" y="368" font-size="13" fill="#4a443c">└ web — Next.js</text>
+  <line x1="668" y1="386" x2="852" y2="386" stroke="#efeae1" stroke-width="1"/>
+  <text x="668" y="408" font-size="11.5" font-style="italic" fill="#9a9184">Gemini ↔ Ollama 감성분석</text>
+
+  <!-- footer note -->
+  <text x="480" y="500" text-anchor="middle" font-size="12" fill="#a49b8c">각 프로젝트는 독립 git repo · 각자 CLAUDE.md 를 정본으로 가진다</text>
+</svg>
