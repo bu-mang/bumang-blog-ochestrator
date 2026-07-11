@@ -15,7 +15,8 @@ description: bumang-blog 3개 레포(front·backend·orchestrator)를 bu-mang �
   - 루트 `/` → `bu-mang/bumang-blog-ochestrator` (CI 없음, push = 게시. **철자 주의: "ochestrator"** — r 하나 빠짐)
 - **인증 우선순위**: gh의 HTTPS git 자격증명은 `git config --global credential.https://github.com.helper = !gh auth git-credential`로 처리되며, 우선순위는 ① `GITHUB_TOKEN`/`GH_TOKEN` env var → ② gh 키링 활성 계정.
 - **함정**: 사용자의 인터랙티브 셸은 `~/.zshrc`가 `export GITHUB_TOKEN=gho_...`(회사 토큰, Camfit Playground `setup.sh`가 깐 것 — **지우면 안 됨**)을 깔기 때문에, 그 셸에서 push하면 키링 계정과 무관하게 항상 회사 토큰을 써서 403.
-- **그러나 Claude 도구 셸에는 `GITHUB_TOKEN`이 없다**(`.zshrc`를 안 읽음). 그래서 키링 활성 계정만 `bu-mang`으로 바꾸면 Claude가 깨끗하게 push할 수 있다. `bu-mang`은 이미 gh 키링에 로그인돼 있어 `gh auth switch`는 비대화형으로 동작한다.
+- **Claude 도구 셸에도 `GITHUB_TOKEN`이 있을 수 있다** — 세션 환경에 따라 다르다(2026-07-11 세션엔 있었다). 있으면 그냥 push해도 회사 토큰으로 나가 403이고, 심지어 **`gh auth switch`조차 키링에 반영되지 않는다**(토큰이 있으면 gh가 토큰 모드로 동작해 switch가 no-op처럼 됨 — 이걸 몰라서 헤맬 수 있다).
+- **해법: gh/git을 치는 모든 명령 맨 앞에 `unset GITHUB_TOKEN`을 인라인으로 붙인다.** unset은 그 Bash 프로세스에만 적용되고 `~/.zshrc`·회사 셋업엔 영향이 없다. 도구 셸은 매 Bash 호출마다 프로필에서 재초기화돼 토큰이 다시 붙으므로, **한 번 unset로 끝나지 않고 switch·push·복귀 매 명령마다 인라인 unset이 필요하다.** (토큰이 원래 없는 세션이면 unset은 그냥 no-op라 안전하다.) `bu-mang`은 이미 gh 키링에 로그인돼 있어 `gh auth switch`는 비대화형으로 동작한다.
 
 ## 절차
 
@@ -26,8 +27,8 @@ description: bumang-blog 3개 레포(front·backend·orchestrator)를 bu-mang �
 ```bash
 for d in bumang-blog-front bumang-blog-backend .; do
   echo "=== $d ==="
-  git -C "/Users/beomhwan/Work/bumang-blog/$d" status -sb
-  git -C "/Users/beomhwan/Work/bumang-blog/$d" log origin/main..HEAD --oneline 2>/dev/null || echo "(origin 비교 불가 — 신규 레포)"
+  git -C "/Users/beomhwan/Work/private/bumang-blog/$d" status -sb
+  git -C "/Users/beomhwan/Work/private/bumang-blog/$d" log origin/main..HEAD --oneline 2>/dev/null || echo "(origin 비교 불가 — 신규 레포)"
 done
 ```
 
@@ -56,22 +57,23 @@ gh auth status 2>&1 | grep -E "account|Active"
 > ⚠️ **switch와 push는 반드시 별도의 Bash 호출로 분리**한다. `guard-bumang-push.js`(PreToolUse hook)는 Bash 명령 **실행 전**에 계정을 확인하므로, `gh auth switch ... && git push`를 한 호출로 묶으면 switch 실행 전(=회사 계정) 상태로 판정돼 push가 **차단**된다. 먼저 switch만 실행하고, 그 다음 별도 호출로 push한다.
 
 ```bash
+unset GITHUB_TOKEN            # 이 프로세스에서만 — 토큰 있으면 제거, 없으면 no-op
 gh auth switch --user bu-mang
-[ -z "$GITHUB_TOKEN" ] && echo "env 토큰 없음 ✅" || echo "⚠️ GITHUB_TOKEN 있음 — 중단"
-gh auth status 2>&1 | grep -A1 "bu-mang"
+gh auth status 2>&1 | grep -B1 "Active account: true"   # 반드시 "bu-mang (keyring)" 이어야 함
 ```
 
-- **Claude 도구 셸에 `GITHUB_TOKEN`이 있으면 절대 진행하지 말 것** — 그러면 회사 토큰으로 push된다. (정상이면 없다.)
-- 활성 계정이 `bu-mang`인지 확인되면 **다음 호출에서** push.
+- ⚠️ **`unset GITHUB_TOKEN` 없이 switch하지 말 것.** 토큰이 있으면 switch가 키링에 반영되지 않아, 검증 시 여전히 `bhjeong-camfit`이 활성으로 찍힌다(이때 무심코 push하면 회사 토큰으로 나가 403). 검증 줄에 **`bu-mang (keyring)` / Active account: true**가 뜨는 걸 확인한 뒤에만 다음으로 넘어간다.
+- switch는 gh 설정파일(`~/.config/gh/hosts.yml`)에 기록돼 **다음 Bash 호출에도 유지**된다. 그래서 switch(이 호출)와 push(다음 호출)를 나눠도 활성계정은 bu-mang으로 남는다.
 
 ### 4. push (switch와 다른 Bash 호출로)
 
 origin보다 앞선 커밋이 있는 레포만 push한다. 이 시점엔 활성 계정이 bu-mang이라 push 가드 hook을 통과한다.
 
 ```bash
-git -C /Users/beomhwan/Work/bumang-blog/bumang-blog-front   push origin main
-git -C /Users/beomhwan/Work/bumang-blog/bumang-blog-backend push origin main
-git -C /Users/beomhwan/Work/bumang-blog                     push -u origin main   # orchestrator
+unset GITHUB_TOKEN            # 이 push 프로세스에서만 — 개인 키링 자격증명으로 나가게
+git -C /Users/beomhwan/Work/private/bumang-blog/bumang-blog-front   push origin main
+git -C /Users/beomhwan/Work/private/bumang-blog/bumang-blog-backend push origin main
+git -C /Users/beomhwan/Work/private/bumang-blog                     push -u origin main   # orchestrator
 ```
 
 ### 5. 회사 계정으로 즉시 복귀 (필수 — 빼먹지 말 것)
@@ -79,8 +81,9 @@ git -C /Users/beomhwan/Work/bumang-blog                     push -u origin main 
 push 성공 여부와 무관하게 **항상** 복귀시킨다. 실패해도 키링을 회사 계정으로 되돌린다.
 
 ```bash
+unset GITHUB_TOKEN            # 복귀 switch도 토큰 있으면 반영 안 되므로 동일하게 unset
 gh auth switch --user bhjeong-camfit
-gh auth status 2>&1 | grep -E "account|Active"   # bhjeong-camfit: Active 확인
+gh auth status 2>&1 | grep -B1 "Active account: true"   # bhjeong-camfit (keyring) 확인
 ```
 
 ### 6. 보고
