@@ -4,6 +4,15 @@
 
 > 이 파일이 이 프로젝트 결정의 **정본**이다. 매니저(`private/memory/`)는 이 파일을 참조해 **종합만** 한다. 프론트/백 실행 세부는 각 하위 repo(`bumang-blog-{front,backend}/CLAUDE.md`)·코드가 정본. 글 작성 톤앤매너는 `BLOG_GUIDE.md`가 별도 정본.
 
+## 2026-09-06 · SSR → 백엔드는 내부 주소로 직행 (Cloudflare 우회) + 익명 조회 감사 로그 후속
+- **인시던트**: 익명 조회 감사 로그(백엔드 `3eebde5`)와 짝으로 프론트 `c53650d`가 SSR `serverFetch`에 방문자 헤더(`cf-connecting-ip`·`cf-ipcountry`·`x-forwarded-for`·`user-agent`) 전달을 넣었는데, SSR이 백엔드를 **공개 주소(`api.bumang.xyz`)** 로 부르고 있어 그 요청이 Cloudflare를 다시 통과했다. **Cloudflare는 외부 유입 요청에 `cf-connecting-ip`가 이미 붙어 있으면 값과 무관하게 403(error 1000)** 을 준다 → 프로덕션의 **모든 글 상세 SSR이 실패**(로그인 여부 무관). 화면엔 에러 대신 "loading..." 폴백만 떴는데, `serverFetch`가 실패 body를 `json()`→`text()` 순으로 두 번 읽다 "Body is unusable"로 status를 잃어 401/403 리다이렉트 분기가 죽어 있었기 때문. 로컬은 Cloudflare 헤더가 애초에 없어 재현 불가였다.
+- **결정**: 프론트와 백엔드가 **같은 EC2·같은 compose 네트워크**인데 인터넷→Cloudflare→nginx를 한 바퀴 돌아 옆 컨테이너로 들어오던 구조 자체를 없앤다. 서버 전용 env **`API_INTERNAL_URL=http://app:4001`** 을 compose `frontend.environment`에서 주입하고, `serverFetch`는 공개 주소로 시작하는 URL의 앞부분만 이 값으로 바꿔 부른다. 브라우저는 그대로 `NEXT_PUBLIC_API_BASE_URL`.
+- **안전장치**: `cf-connecting-ip`는 **내부 경로일 때만** 전달하고 공개 경로로 나갈 땐 호출부가 넣었어도 지운다 — env 주입이 빠지거나 배포 순서가 꼬여도 장애로 돌아가지 않게. 에러 body는 텍스트로 한 번만 읽고 JSON 파싱을 그 위에서 시도.
+- **부수 이득**: 백엔드 레이트리밋(`CfThrottlerGuard`)이 SSR 트래픽을 그동안 EC2 공인 IP 하나로 묶어 봤는데, 이제 방문자 IP별로 격리된다. SSR 왕복 지연도 제거.
+- **배포 함정**: compose 파일은 백엔드 레포에 있고 프론트 Actions는 서버 디스크의 compose로 `up -d frontend`한다 → **백엔드 먼저 배포(compose 갱신)→프론트 배포** 순서여야 새 env가 붙는다. 반대로 가도 안전장치 덕에 페이지는 살지만 감사 로그 IP가 서버 IP로 찍힌다.
+- **미확인**: 로컬 검증 중 한 페이지 렌더에 백엔드 GET이 2회 관측됨(403 경로). `c53650d`의 React `cache()` 중복 접기가 실패 응답에선 안 먹거나 dev 한정일 수 있음 — prod 감사 로그에서 한 조회당 행 수로 확인 필요.
+- **상태**: 코드 수정·로컬 검증 완료(공개 경로에 가짜 CF 헤더 → 렌더 OK / 내부 경로 → 헤더 4종 도달·403 → unauthorized 리다이렉트 OK). **배포 대기.**
+
 ## 2026-08-02 · 콘텐츠 조회 감사 로그 (로그인 유저 한정) + 조회수 dedup 검토
 - **발단**: "조회수는 로그인 안 해도 올릴 수 있지?"에서 출발해 확인해보니 `POST /posts/:id/view`가 **가드도 레이트리밋도 없는 완전 공개 엔드포인트**였다. 중복 방지가 프론트 `sessionStorage` 하나뿐이라 시크릿 창·curl 루프로 무제한 증가 가능. `ThrottlerModule`은 `APP_GUARD`로 등록돼 있지 않아 이 라우트엔 적용조차 안 된다.
 - **결정**: 조회수 dedup(IP+postId)은 **보류**하고, 먼저 **로그인 유저의 콘텐츠 조회 감사 로그**를 만든다. 로그인 감사 로그의 자연스러운 확장이고, 이 블로그는 권한 제어가 핵심 기능이라 "누가 무엇을 봤나·무엇에서 막혔나"가 조회수 정확도보다 값어치가 크다.
