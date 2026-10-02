@@ -30,9 +30,10 @@
 
 ## 인증 흐름 (양쪽 공통)
 
-JWT 이중 토큰: **access(단기) + refresh(장기, 백엔드 DB 저장 + 로테이션)**, 둘 다 httpOnly 쿠키.
-- 백엔드가 로그인 시 쿠키 설정, refresh로 access 재발급.
-- 프론트 `middleware.ts`가 매 요청에서 access 검증 → 만료 시 refresh로 자동 재발급 → 실패 시 쿠키 정리.
+**access JWT(15분) + refresh 세션(30일 슬라이딩, 기기별, 백엔드 DB에 해시 저장)**, 둘 다 httpOnly 쿠키.
+- 발급·검증의 권위는 백엔드 한 곳. 프론트는 서명 키를 갖지 않는다.
+- 프론트 `middleware.ts`가 페이지 요청마다 access 만료를 보고 refresh로 재발급(백엔드가 401로 거부했을 때만 쿠키 정리). 브라우저의 API 직접 호출은 axios 인터셉터가 재발급.
+- 로그인한 사용자는 프론트 루트 레이아웃이 서버에서 조회해 내려준다(`useAuth()`).
 
 ## 배포
 
