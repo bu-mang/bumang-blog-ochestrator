@@ -4,6 +4,60 @@
 
 > 이 파일이 이 프로젝트 결정의 **정본**이다. 매니저(`private/memory/`)는 이 파일을 참조해 **종합만** 한다. 프론트/백 실행 세부는 각 하위 repo(`bumang-blog-{front,backend}/CLAUDE.md`)·코드가 정본. 글 작성 톤앤매너는 `BLOG_GUIDE.md`가 별도 정본.
 
+## 2026-10-03 · 서버를 t4g.micro로 — 메모리 다이어트 (373MB 백엔드 → 컨테이너 전체 250MB)
+- **계기**: "블로그가 느리다" 조사 중 백엔드 컨테이너가 한도 384MB 중 373MB(97%)를 쓰며 스왑을 타는 것을 발견. 9월에도 같은 방식(SIGTRAP)으로 3번 죽은 기록이 코어 덤프 목록에 있었다(9/1·9/5·9/10, 원인 로그는 재배포로 소실).
+- **원인과 조치**
+  - `geoip-lite`가 IP DB 전체(약 210MB, V8 힙 바깥 Buffer)를 상주 → **제거**, 도시는 Cloudflare 위치 헤더(`cf-ipcity`)로 대체.
+  - Prometheus 지표: 수집 서버(prometheus 컨테이너)는 이미 없는데 앱이 지표를 계속 쌓았고, 라벨에 쿼리스트링 포함 URL을 넣어 고유 URL마다 시계열이 늘어나는 누수(URL당 약 0.9KB, 실제 누적은 수 MB 수준) → **주석 처리로 끔**(코드·설정은 보존, 다시 켤 때는 라우트 패턴 라벨로).
+  - 1년 넘게 재부팅 안 해 쌓인 커널 회수 불가 메모리 224MB → **재부팅**으로 51MB.
+  - 시스템 저널 2GB → 한도 **50MB**. 프로덕션 Swagger 노출(`/api-docs` 공개) → **개발 환경에서만**.
+  - sharp(libvips) 메모리 캐시(기본 50MB, 이 구조에선 적중 거의 없음) → **끔**(`instrumentation.node.ts`).
+- **안전장치**: 컨테이너 한도 백엔드·프론트 **256MB**, 힙 상한 192/160(`--max-old-space-size`), 치명 오류 시 Node 진단 리포트(`--report-*`, `--report-exclude-env` 필수 — 없으면 환경변수 비밀값이 리포트에 담김), 로그·리포트는 호스트 `/var/log/bumang-blog/`(재배포에도 보존), 코어 덤프는 "기록만"(`/etc/systemd/coredump.conf.d/10-no-dump.conf`). certbot에 재시작 정책 추가(없으면 재부팅 후 인증서 갱신이 조용히 멈춤).
+- **배포 마이그레이션**: ts-node로 src를 즉석 컴파일하면 256MB를 꽉 채움(실측). → `migration:run:prod`(빌드된 `dist/` 실행, 실측 26MB·1초)로 변경.
+- **결과**: 호스트 사용 830MB → 376MB(재부팅 직후). **t4g.small → t4g.micro 전환 완료**(월 $15.18 → $7.59). 전환 직후 382MB/916MB, 스왑 0. 탄력적 IP라 주소 그대로.
+- **함정**: ① 백엔드 `types/`의 유일한 파일을 지우자 tsc 출력이 `dist/src/main.js` → `dist/main.js`로 바뀌어 실행 명령이 깨질 뻔함 → `tsconfig`에 `rootDir: "./"` 고정. ② 프론트 설정도 백엔드 레포의 compose에 있어서, 프론트가 먼저 배포되면 옛 compose로 뜬다 → 백엔드 배포 후 `up -d frontend` 필요. ③ **한도에 붙은 프로덕션 컨테이너 안에서 진단용 node를 띄우지 말 것** — 10-03 새벽 그것이 백엔드 본체를 죽였고, 코어 덤프를 쓰는 4분 동안 API가 멈췄다.
+- **OS 업데이트**: Amazon Linux 2023은 설치 릴리스에 고정돼 `dnf upgrade`가 "받을 것 없음"으로 나온다 — 그래서 2025-05 릴리스·커널로 1년 넘게 보안 패치 없이 돌았다. 10-03 `dnf upgrade --releasever=latest`로 2023.12(2026-09-30)까지 240개 패키지 업데이트(커널 6.1.134 → 6.1.188, containerd 1.7 → 2.2) 후 재부팅. 중단 약 1분.
+- **월 1회 자동 정비**: `monthly-maintenance.timer`(매월 첫째 일요일 04:00 KST) → DB 덤프(최근 3개) → 최신 릴리스 업데이트 → 미사용 이미지 정리 → 커널이 바뀌었으면 재부팅 → 부팅 후 프론트·API 응답 확인. 기록은 서버 `/var/log/monthly-maintenance.log`. 실패 알림은 없음(로그만). 스크립트는 서버 `/usr/local/sbin/monthly-maintenance.sh`, `maintenance-healthcheck.sh`(레포 밖).
+- **상태**: 확정·배포 완료. 며칠 뒤 스왑·컨테이너 메모리 재측정(기준: 스왑 수백 MB, 컨테이너 200MB 이상이면 부족 신호).
+
+## 2026-10-03 · 인증 재구성 — access JWT 15분 + 기기별 refresh 세션, 사용자는 서버에서 확정
+- **결정**
+  - refresh 토큰: `users.refreshToken`(계정당 1개·평문·JWT) → **`refresh_session_entity`(기기당 1행, 256비트 난수, DB엔 SHA-256 해시만)**. 마지막 사용 후 30일 슬라이딩, 유저당 최대 10개, 자정 크론이 만료분 삭제. 9월에 보류했던 "기기 간 서로 로그아웃" 해결.
+  - 토큰 수명 단일 출처 `auth/const/token.const.ts`: access 15분, refresh 30일. 쿠키 수명 = 토큰 수명.
+  - 프론트는 **서명 키(`JWT_SECRET`)를 갖지 않는다**. 미들웨어는 서명 검증 없이 만료·역할만 읽어 갱신·리다이렉트만 하고, 실제 경계는 백엔드 가드. 서버의 프론트 env에서도 삭제함.
+  - 로그인 사용자는 루트 레이아웃이 `getCurrentUser()`로 조회해 `AuthProvider` → `useAuth()`. zustand 스토어·`isAuthLoading` 제거. 익명 방문자의 페이지당 실패 호출 2번(프로필 401→갱신 401)이 0번이 됨.
+  - 갱신은 두 곳: 페이지 요청은 미들웨어(내부 주소 `app:4001`로 직행), 브라우저 API 호출은 axios 인터셉터. `OptionalJwtAuthGuard`는 access 없고 refresh 쿠키 있으면 401(로그인 사용자가 마스킹된 익명 응답을 받지 않게).
+  - 레이트리밋: 프론트 미들웨어(메모리 Map) → **백엔드 전역 `CfThrottlerGuard`(APP_GUARD, 방문자 IP당 분당 300회)**. 원래 `ThrottlerModule` 설정만 있고 가드가 가입·로그인에만 붙어 있어 나머지 API는 무제한이었다.
+  - refresh 토큰을 찍던 `console.log` 등 인증 디버그 로그 전부 제거.
+- **기각**: refresh 토큰 로테이션 — 새 토큰을 실은 응답이 취소되면(Next 프리페치) 멀쩡한 세션이 끊기는 위험이 이득보다 큼. 순수 세션 방식 — 구조 갈아엎기 대비 이득 작음.
+- **알려진 한계·미구현**: 레이아웃의 사용자 값은 링크 이동 때 갱신되지 않음(표시용으로만 사용). 탈취 대응 수단(모든 기기 로그아웃, 비밀번호 변경, 세션 절대 상한) 없음. `getCurrentUser()` 시간 제한 없음(백엔드가 멈추면 로그인 사용자 페이지가 같이 대기).
+- **상태**: 확정·배포 완료(백엔드 `dc6a5db`, 프론트 `5085335`). 배포 시 기존 로그인 1회 해제됨. 구조도: https://claude.ai/artifact/Kr5YFbPmjD55sMAHwhtcYz
+
+## 2026-10-03 · 엣지는 Cloudflare 유지 — 봇 차단은 WAF, 오리진은 Cloudflare 대역만
+- **결정**: 봇 차단(UA 목록)을 프론트 미들웨어에서 **Cloudflare WAF 커스텀 규칙**(`Block bad bots`)으로 이동 — 요청이 Node까지 오기 전에 막히고 api 도메인도 덮는다. EC2 보안 그룹 80·443을 **Cloudflare IPv4 15개 대역만** 허용(직접 접속 시 WAF 우회 차단 확인). SSH 22는 GitHub Actions 배포 때문에 전체 개방 유지(비밀번호 로그인 꺼짐, 키 1개).
+- **함의**: Cloudflare 프록시를 유지하므로 LA 경유 문제를 DNS only로 푸는 길은 닫힘.
+- **미결**: KT 회선이 무료 플랜 `bumang.xyz`를 LAX 엣지로 받음(같은 13KB가 LAX 0.6~5.7초, ICN 0.07~0.3초). 감사 로그에 `colo`(경유 엣지)를 쌓기 시작 — 며칠 데이터로 한국 방문자의 LAX 비율을 보고 유료 플랜 여부 판단.
+- **감사 로그 확장**: `region`(시/도)·`colo`·`referer`(콘텐츠 조회만) 컬럼 추가, 도시는 `cf-ipcity`.
+- **상태**: WAF·보안 그룹 적용 완료, LAX 대응 미결.
+
+## 2026-10-03 · 발견했지만 손대지 않은 것
+- `/ko/work/anttime-swap` 프로덕션 500 — `content/work/anttime-swap/` 없음.
+- 마이그레이션만으로 만든 DB엔 `post_entity.thumbnailUrl`·`type` 컬럼이 없음(프로덕션 DB엔 있음) → 새 환경 구성 시 글 조회 500.
+- `user_entity.refreshToken` 컬럼: 코드에선 미사용, 무중단 배포 때문에 DB에 남김 → 별도 마이그레이션으로 삭제.
+- PostgreSQL `shared_buffers` 128MB > DB 컨테이너 한도 100MB(지금 DB 10MB라 무해, 커지면 32MB로).
+- 서버의 옛 Prometheus·Grafana 볼륨 367MB(디스크만 차지).
+
+## 2026-10-02 · 느린 로드의 진범은 S3가 아니라 꺼져 있던 이미지 최적화
+- **원인**: 프론트에 `sharp`가 없어 Next standalone의 `/_next/image`가 리사이즈에 실패하고 원본(1.5MB PNG)을 그대로 내보내고 있었다. 판별법: 폭을 바꿔 요청해도 `content-length`가 같으면 원본 fallback.
+- **조치**
+  - `sharp` 추가, `images.minimumCacheTTL` 1년, Cloudflare Cache Rule(`/_next/image*`), 최대 폭 2048(`deviceSizes`).
+  - S3 기존 이미지 워싱: PNG 28개 팔레트 압축 + GIF 2개 128색(키 유지라 DB 수정 없음, 1년 캐시 헤더) — 37.5MB → 10.7MB. 원본 백업 `~/Work/private/bumang-blog-s3-backup-2026-10-03/`.
+  - 업로드 시 압축: 에디터 파일은 브라우저, 외부 URL은 서버(sharp)에서 가로 2048·세로 4096 이하 webp q85. GIF·webp·avif는 원본.
+  - 프론트 레포 정적 파일 198MB → 62MB: 참조 없는 파일 삭제, 그룹 배너 7장 4K PNG(87MB) → 1440px webp(2MB), `lily.glb` 54만 → 7.2만 삼각형(20MB → 2.7MB). Docker 이미지 482MB → 331MB.
+  - `public/images/work/SEA-PEARL` → `sea-pearl`(프로덕션 Linux에서 대소문자 불일치로 404였음).
+- **남은 것**: public의 포트폴리오 GIF 6개(20MB)는 색을 줄이면 배경색이 바뀌고 색을 유지하면 안 줄어 그대로 — 동영상 변환이 정답. 기존 글 이미지의 webp 전환은 본문 URL 수정이 필요해 보류.
+- **상태**: 확정·배포 완료.
+
 ## 2026-09-06 · SSR → 백엔드는 내부 주소로 직행 (Cloudflare 우회) + 익명 조회 감사 로그 후속
 - **인시던트**: 익명 조회 감사 로그(백엔드 `3eebde5`)와 짝으로 프론트 `c53650d`가 SSR `serverFetch`에 방문자 헤더(`cf-connecting-ip`·`cf-ipcountry`·`x-forwarded-for`·`user-agent`) 전달을 넣었는데, SSR이 백엔드를 **공개 주소(`api.bumang.xyz`)** 로 부르고 있어 그 요청이 Cloudflare를 다시 통과했다. **Cloudflare는 외부 유입 요청에 `cf-connecting-ip`가 이미 붙어 있으면 값과 무관하게 403(error 1000)** 을 준다 → 프로덕션의 **모든 글 상세 SSR이 실패**(로그인 여부 무관). 화면엔 에러 대신 "loading..." 폴백만 떴는데, `serverFetch`가 실패 body를 `json()`→`text()` 순으로 두 번 읽다 "Body is unusable"로 status를 잃어 401/403 리다이렉트 분기가 죽어 있었기 때문. 로컬은 Cloudflare 헤더가 애초에 없어 재현 불가였다.
 - **결정**: 프론트와 백엔드가 **같은 EC2·같은 compose 네트워크**인데 인터넷→Cloudflare→nginx를 한 바퀴 돌아 옆 컨테이너로 들어오던 구조 자체를 없앤다. 서버 전용 env **`API_INTERNAL_URL=http://app:4001`** 을 compose `frontend.environment`에서 주입하고, `serverFetch`는 공개 주소로 시작하는 URL의 앞부분만 이 값으로 바꿔 부른다. 브라우저는 그대로 `NEXT_PUBLIC_API_BASE_URL`.
