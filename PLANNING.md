@@ -4,6 +4,29 @@
 
 > 이 파일이 이 프로젝트 결정의 **정본**이다. 매니저(`private/memory/`)는 이 파일을 참조해 **종합만** 한다. 프론트/백 실행 세부는 각 하위 repo(`bumang-blog-{front,backend}/CLAUDE.md`)·코드가 정본. 글 작성 톤앤매너는 `BLOG_GUIDE.md`가 별도 정본.
 
+## 2026-11-01 · 분류 체계 전면 개편 — 29개 카테고리 → 16개, slug 도입, 분류 수정은 host 전용
+- **계기**: 카테고리 29개 중 9개가 비고 1~2편짜리가 12개. `Node / Express / Nest.js` 12편 중 NestJS 글은 1편(나머지는 RabbitMQ·K8s·결제 버그). 카테고리가 "주제"와 "프로젝트(Project > Blai)" 두 기준을 같이 맡아 Blai 글 14편이 5개 카테고리에 흩어져 있었다(Blai 카테고리엔 2편).
+- **분류 기준**: ① 카테고리 = 주제 한 기준. 프로젝트·회사는 태그. ② 3편 이상이거나 진행 중인 프로젝트로 곧 채워질 칸만(예외: `LLM Apps`·`Unity & C#` 2편). 15편이 넘고 덩어리가 뚜렷하면 그때 나눈다. ③ 빈 칸은 미리 안 만든다 — 첫 글 때 만든다(Spring Boot도 그때). ④ `etc` 금지. ⑤ 태그는 **두 개 이상의 카테고리에 걸칠 때만** — 한 카테고리 안에만 있으면 카테고리와 중복.
+- **구조 (영어 이름)**: Frontend(JavaScript & TypeScript · React & Web) / Backend(Architecture · Payments) / Database(SQL & RDBMS · ORM & Performance · NoSQL) / DevOps(Cloud & Ops · Build & Tooling) / AI(Agents · LLM Apps) / Computer Science(Network · OS & Hardware) / Game Dev(Unity & C#) / Life(Career · Journal). `Infra & Tooling`은 서버 운영과 개발 도구를 `&`로 붙인 데다 절반이 AI 글이라 DevOps·AI로 갈랐다. Database는 19편으로 가장 크고 SQLD 공부로 계속 늘어날 칸이라 Backend에서 독립. Project 그룹은 폐지.
+- **태그 7개**: 프로젝트 축 `Blai`·`Camfit`·`Ant-Index`·`bumang.xyz` + 성격·기술 축 `Troubleshooting`·`Kubernetes`·`AWS`. `Bumang Route53`은 AWS Route53으로 오해되기 쉬워 `bumang.xyz`로.
+- **slug 도입 (핵심 결정)**: 그룹·카테고리·태그에 `slug`(고정 키)를 두고 **주소와 코드 판정은 slug, 화면 이름은 label**로 역할을 나눈다. 정수 id는 DB 안의 관계에만. 글 주소(`/blog/116`)는 정수 id 유지 — 제목이 바뀌어도 링크가 안 깨지고 한글 제목은 주소에 넣기 나쁘다.
+  - **왜 id가 아닌가**: id를 재활용해 이름만 바꾸면 예전 링크가 다른 뜻의 칸을 가리킨다. 또 id는 로컬·운영 DB에서 값이 달라 코드에 박을 수 없다.
+  - **왜 label이 아닌가**: 기존 코드가 `label === 'Life'`로 dev/life 탭과 글 type을 판정하고, 그룹 이름으로 기본 썸네일을 골랐다 → 화면 이름을 바꾸면 기능이 깨졌다. 이제 `slug === 'life'`.
+  - 주소: `?categoryId=16` → `?category=architecture`, `?tagIds=3` → `?tag=kubernetes`. 예전 id 링크는 새 프론트가 무시하고 전체 목록을 보여준다(개인 블로그라 외부 유입이 거의 없음). 백엔드는 배포 순서 사이의 구 프론트를 위해 id 필터도 계속 받는다.
+- **같이 고친 것**
+  - 그룹·카테고리·태그 생성/수정/삭제 API가 `@Roles(MEMBER)`라 member도 분류를 지울 수 있었다(6월 역할 이름 변경 `f874b04` 때 admin→member로 그대로 넘어옴) → **host 전용**.
+  - 없는 그룹·카테고리 id로 목록을 조회하면 `findOne()` 결과에 null 검사 없이 `.label`을 읽어 **500**이었다 → 빈 결과로.
+  - 글을 Life 밖으로 옮겨도 type이 dev로 안 돌아가던 버그 → 옮길 때마다 그룹으로 다시 판정.
+  - `PATCH /categories/groups`에 `:id`가 빠져 그룹 수정이 항상 400이던 라우트.
+  - 썸네일 매핑에 없는 그룹이면 빈 src(`""`)를 내던 것 → 기본 이미지로.
+  - **slug 규칙 한 벌로 통일**: 원래 있던 사용자 그룹(`user_group`) slug는 `^[a-z0-9-]+$`·50자·직접 입력만이었다. 이번 분류 규칙으로 맞췄다 — 소문자·숫자를 하이픈 하나로 잇기(`-a`·`a--b` 불가), 최대 50자(사용자 그룹 칸이 VARCHAR(50)이라 분류에도 같은 한도), 비우면 이름에서 생성(한글 이름이면 400으로 직접 받음). 정본은 백엔드 `src/common/util/slugify.ts` + `@IsSlug()`, 프론트는 폼 검사용 `src/utils/slug.ts`. 기존 slug 값은 다시 검사하지 않는다(관리 화면은 생성만 한다).
+  - 목록 제목(`subject`)이 탭 이름으로 덮이던 것: 탭(All/Dev/Life)을 고른 뒤 카테고리를 누르면 `?category=…&type=dev`가 함께 가서, 목록은 맞는데 제목이 `dev`·`all`로 나왔다(운영 재현: `?categoryId=16&type=dev` → `dev`). 그룹·카테고리·태그 필터가 없을 때만 탭 이름을 제목으로.
+  - **목록 사이드바 태그 필터는 최대 5개** (프론트에서만 막음): 5개가 차면 나머지 태그가 흐려지고, 누르면 이동하지 않고 토스트. 주소를 손으로 고쳐 6개 이상 넣어도 앞의 5개만 쓴다. 상수는 `constants/taxonomy.ts`의 `MAX_TAG_FILTERS`.
+- **실행 순서**: 백엔드 배포(마이그레이션이 slug 칸을 만들고 현재 이름에서 채움) → 프론트 배포 → **운영 DB에서 재배치 SQL 실행**(DBeaver, 백업 후 트랜잭션). 프론트는 옛 데이터에서도 동작하게(slug는 옛 이름에서 채워지고, 매핑에 없는 그룹은 기본 썸네일) 만들어 순서 사이 틈에서도 안 깨진다.
+- **로컬 리허설 (2026-11-01)**: postgres:15 컨테이너에 기존 마이그레이션을 전부 돌리고, 공개 API로 받은 운영 모양 데이터(그룹 7·카테고리 29·태그 14·글 82 + 지운 글 2편)를 넣어 검증했다. 새 마이그레이션은 up·down 둘 다 동작하고, slug가 채워진다(한글 태그는 `tag-<id>`). 재배치 SQL은 계획한 글 번호와 정확히 같고, 두 번째로 실행하면 0단계 검사에서 멈춘다. API: slug 필터(`?category=architecture` 7편 등), 예전 id 필터와 없는 id는 빈 결과(500 아님), 쓰기는 비로그인 401·member 403·host 통과, slug 중복은 409, 한글 이름에 slug를 안 주면 400. Life↔다른 그룹 이동 때 type이 양방향으로 다시 판정된다. 프론트 `tsc`·lint(기존 경고 1개 그대로)·`build`가 통과하고, SSR 링크가 전부 `?group=`·`?category=`·`?tag=`다. 리허설 DB에는 마이그레이션만으로 `thumbnailUrl`·`type` 칸이 안 생겨 직접 추가했다(아래 10-03 "발견했지만 손대지 않은 것"과 같은 문제).
+- **남은 것**: `Database`·`AI` 전용 썸네일 이미지(지금은 Backend·Project 이미지를 빌려 씀). 글의 태그 중 추정으로 붙인 것(Blai: 52·53·63·64·72·74, bumang.xyz: 22, 회사 미상: 111·113·117)은 사용자 확인 필요.
+- **상태**: 구현 완료 · 로컬 리허설 검증 완료 · **배포 전**(사용자 확인 대기). 재배치 SQL: `bumang-blog-backend/db/oneoff/2026-11-01-taxonomy-restructure.sql`(COMMIT은 사람이 직접).
+
 ## 2026-10-03 · 서버를 t4g.micro로 — 메모리 다이어트 (373MB 백엔드 → 컨테이너 전체 250MB)
 - **계기**: "블로그가 느리다" 조사 중 백엔드 컨테이너가 한도 384MB 중 373MB(97%)를 쓰며 스왑을 타는 것을 발견. 9월에도 같은 방식(SIGTRAP)으로 3번 죽은 기록이 코어 덤프 목록에 있었다(9/1·9/5·9/10, 원인 로그는 재배포로 소실).
 - **원인과 조치**
